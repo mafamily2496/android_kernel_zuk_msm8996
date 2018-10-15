@@ -285,7 +285,6 @@ static irqreturn_t fpc1020_irq_handler(int irq, void *_fpc1020)
 {
 	struct fpc1020_data *fpc1020 = _fpc1020;
 
-	pr_info("fpc1020 IRQ interrupt\n");
 	/* Make sure 'wakeup_enabled' is updated before using it
 	 ** since this is interrupt context (other thread...) */
 	smp_rmb();
