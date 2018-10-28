@@ -499,7 +499,7 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 		}
 
 		gpio_set_value(platform_data->reset_gpio_test, 1);
-		usleep(GPIO_SLEEP_LOW_US);
+		mdelay(GPIO_SLEEP_LOW_US);
 		gpio_set_value(platform_data->reset_gpio_test, 1);
 		msleep(RESET_DELAY);
 	}
@@ -525,9 +525,9 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 		}
 
 		gpio_set_value(platform_data->reset_gpio, 1);
-		usleep(GPIO_SLEEP_LOW_US);
+		mdelay(GPIO_SLEEP_LOW_US);
 		gpio_set_value(platform_data->reset_gpio, 0);
-		usleep(RESET_DELAY);
+		mdelay(RESET_DELAY);
 	}
 #else
     tfa9890_dev->first_open = true;
