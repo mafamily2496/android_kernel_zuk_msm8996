@@ -44,7 +44,7 @@
 #define TFA9890_I2C_LOAD_UA	10000
 #define TFA9890_I2C_LPM_LOAD_UA	10
 
-extern int msm8974_quat_mi2s_clk_enable(bool enable);
+extern int msm_q6_enable_mi2s_clocks(bool enable);
 
 struct tfa9890_i2c_platform_data {
 	struct i2c_client *i2c_client;
