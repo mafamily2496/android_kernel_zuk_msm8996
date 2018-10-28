@@ -413,7 +413,7 @@ static irqreturn_t tfa9890_irq(int irq, void *data)
  * and creates a work queue for detection of other expansion Function
  * modules.
  */
-static int __devinit nxp_tfa9890_probe(struct i2c_client *client,
+static int nxp_tfa9890_probe(struct i2c_client *client,
 		const struct i2c_device_id *dev_id)
 {
 	int ret = 0;
@@ -613,7 +613,7 @@ err_i2c:
  * frees the interrupt, unregisters the driver from the input subsystem,
  * turns off the power to the sensor, and frees other allocated resources.
  */
-static int __devexit nxp_tfa9890_remove(struct i2c_client *client)
+static int nxp_tfa9890_remove(struct i2c_client *client)
 {
 	struct tfa9890_dev *tfa9890_dev;
 
@@ -691,7 +691,7 @@ static struct i2c_driver nxp_tfa9890_driver = {
 #endif
 	},
 	.probe = nxp_tfa9890_probe,
-	.remove = __devexit_p(nxp_tfa9890_remove),
+	.remove = nxp_tfa9890_remove,
 	.id_table = nxp_tfa9890_id_table,
 };
 
