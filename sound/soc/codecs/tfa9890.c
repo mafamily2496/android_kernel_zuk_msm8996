@@ -188,6 +188,7 @@ static long tfa9890_dev_ioctl(struct file *filp,
 		}
 		case ENABLE_MI2S_CLK:
 			msm_q6_enable_mi2s_clocks(arg);
+			break;
 		default:
 			break;
 	}
