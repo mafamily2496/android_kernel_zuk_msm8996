@@ -207,7 +207,7 @@ static const struct file_operations tfa9890_dev_fops = {
 static int reg_set_optimum_mode_check(struct regulator *reg, int load_uA)
 {
 	return (regulator_count_voltages(reg) > 0) ?
-		regulator_set_optimum_mode(reg, load_uA) : 0;
+		regulator_set_load(reg, load_uA) : 0;
 }
 
 static int tfa9890_parse_dt(struct device *dev,
