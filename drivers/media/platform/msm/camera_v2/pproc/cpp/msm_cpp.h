@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <media/v4l2-subdev.h>
+#include "msm_generic_buf_mgr.h"
 #include "msm_sd.h"
 #include "cam_soc_api.h"
 #include "cam_hw_ops.h"
@@ -127,6 +128,12 @@ enum cpp_state {
 enum cpp_iommu_state {
 	CPP_IOMMU_STATE_DETACHED,
 	CPP_IOMMU_STATE_ATTACHED,
+};
+
+enum cpp_iommu_fault_state {
+	CPP_IOMMU_FAULT_NONE,
+	CPP_IOMMU_FAULT_DETECTED,
+	CPP_IOMMU_FAULT_RECOVERED,
 };
 
 enum msm_queue {
@@ -276,7 +283,7 @@ struct cpp_device {
 
 	struct msm_cpp_buff_queue_info_t *buff_queue;
 	uint32_t num_buffq;
-	struct v4l2_subdev *buf_mgr_subdev;
+	struct msm_cam_buf_mgr_req_ops buf_mgr_ops;
 
 	uint32_t bus_client;
 	uint32_t bus_idx;
@@ -286,6 +293,7 @@ struct cpp_device {
 	struct msm_cpp_vbif_data *vbif_data;
 	bool turbo_vote;
 	struct cx_ipeak_client *cpp_cx_ipeak;
+	enum cpp_iommu_fault_state fault_status;
 };
 
 int msm_cpp_set_micro_clk(struct cpp_device *cpp_dev);

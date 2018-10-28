@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -575,6 +575,8 @@ int msm_camera_get_dt_power_setting_data(struct device_node *of_node,
 				ps[i].seq_val = SENSOR_GPIO_CUSTOM1;
 			else if (!strcmp(seq_name, "sensor_gpio_custom2"))
 				ps[i].seq_val = SENSOR_GPIO_CUSTOM2;
+			else if (!strcmp(seq_name, "sensor_gpio_custom3"))
+				ps[i].seq_val = SENSOR_GPIO_CUSTOM3;
 			else
 				rc = -EILSEQ;
 			break;
@@ -1078,6 +1080,27 @@ int msm_camera_init_gpio_pin_tbl(struct device_node *of_node,
 		rc = 0;
 	}
 
+	rc = of_property_read_u32(of_node, "qcom,gpio-custom3", &val);
+	if (rc != -EINVAL) {
+		if (rc < 0) {
+			pr_err("%s:%d read qcom,gpio-custom3 failed rc %d\n",
+				__func__, __LINE__, rc);
+			goto ERROR;
+		} else if (val >= gpio_array_size) {
+			pr_err("%s:%d qcom,gpio-custom3 invalid %d\n",
+				__func__, __LINE__, val);
+			rc = -EINVAL;
+			goto ERROR;
+		}
+		gconf->gpio_num_info->gpio_num[SENSOR_GPIO_CUSTOM3] =
+			gpio_array[val];
+		gconf->gpio_num_info->valid[SENSOR_GPIO_CUSTOM3] = 1;
+		CDBG("%s qcom,gpio-custom3 %d\n", __func__,
+			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_CUSTOM3]);
+	} else {
+		rc = 0;
+	}
+
 	return rc;
 
 ERROR:
@@ -1441,7 +1464,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 		switch (power_setting->seq_type) {
 		case SENSOR_CLK:
 			if (power_setting->seq_val >= ctrl->clk_info_size) {
-				pr_err("%s clk index %d >= max %d\n", __func__,
+				pr_err("%s clk index %d >= max %zu\n", __func__,
 					power_setting->seq_val,
 					ctrl->clk_info_size);
 				goto power_up_failed;
@@ -1449,12 +1472,9 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 			if (power_setting->config_val)
 				ctrl->clk_info[power_setting->seq_val].
 					clk_rate = power_setting->config_val;
-
-			rc = msm_cam_clk_enable(ctrl->dev,
-				&ctrl->clk_info[0],
-				(struct clk **)&power_setting->data[0],
-				ctrl->clk_info_size,
-				1);
+			rc = msm_camera_clk_enable(ctrl->dev,
+				ctrl->clk_info, ctrl->clk_ptr,
+				ctrl->clk_info_size, true);
 			if (rc < 0) {
 				pr_err("%s: clk enable failed\n", __func__);
 				goto power_up_failed;
@@ -1545,14 +1565,6 @@ power_up_failed:
 		power_setting = &ctrl->power_setting[index];
 		CDBG("%s type %d\n", __func__, power_setting->seq_type);
 		switch (power_setting->seq_type) {
-
-		case SENSOR_CLK:
-			msm_cam_clk_enable(ctrl->dev,
-				&ctrl->clk_info[0],
-				(struct clk **)&power_setting->data[0],
-				ctrl->clk_info_size,
-				0);
-			break;
 		case SENSOR_GPIO:
 			if (!ctrl->gpio_conf->gpio_num_info)
 				continue;
@@ -1655,19 +1667,9 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 		CDBG("%s type %d\n", __func__, pd->seq_type);
 		switch (pd->seq_type) {
 		case SENSOR_CLK:
-
-			ps = msm_camera_get_power_settings(ctrl,
-						pd->seq_type,
-						pd->seq_val);
-			if (ps)
-				msm_cam_clk_enable(ctrl->dev,
-					&ctrl->clk_info[0],
-					(struct clk **)&ps->data[0],
-					ctrl->clk_info_size,
-					0);
-			else
-				pr_err("%s error in power up/down seq data\n",
-								__func__);
+			msm_camera_clk_enable(ctrl->dev,
+				ctrl->clk_info, ctrl->clk_ptr,
+				ctrl->clk_info_size, false);
 				break;
 		case SENSOR_GPIO:
 			if (pd->seq_val >= SENSOR_GPIO_MAX ||
