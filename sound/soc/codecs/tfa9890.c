@@ -178,6 +178,7 @@ static long tfa9890_dev_ioctl(struct file *filp,
 			    unsigned int cmd, unsigned long arg)
 {
 	struct tfa9890_dev *tfa9890_dev = filp->private_data;
+	
 	switch(cmd)
 	{
 		case I2C_SLAVE:
@@ -186,12 +187,7 @@ static long tfa9890_dev_ioctl(struct file *filp,
 			break;
 		}
 		case ENABLE_MI2S_CLK:
-		{
-			udelay(500);
-			msm_q6_enable_mi2s_clocks(arg);
-			//printk("[%s][%d]\n",__func__,__LINE__);
-			break;
-		}
+			msm8974_quat_mi2s_clk_enable(arg);
 		default:
 			break;
 	}
@@ -208,6 +204,12 @@ static const struct file_operations tfa9890_dev_fops = {
 	.unlocked_ioctl	= tfa9890_dev_ioctl,
 };
 
+static int reg_set_optimum_mode_check(struct regulator *reg, int load_uA)
+{
+	return (regulator_count_voltages(reg) > 0) ?
+		regulator_set_optimum_mode(reg, load_uA) : 0;
+}
+
 static int tfa9890_parse_dt(struct device *dev,
 			 struct tfa9890_i2c_platform_data *pdata)
 {
@@ -215,17 +217,186 @@ static int tfa9890_parse_dt(struct device *dev,
 	struct device_node *np = dev->of_node;
 	
 	/* reset, irq gpio info */
+	pdata->reset_gpio_test = of_get_named_gpio_flags(np,
+			"reset-gpio-test", 0, &pdata->reset_flags);
 	pdata->reset_gpio = of_get_named_gpio_flags(np,
 			"reset-gpio", 0, &pdata->reset_flags);
-	pr_info("%s,pdata->reset_gpio = %d\n", __func__, pdata->reset_gpio);
 	pdata->irq_gpio = of_get_named_gpio_flags(np,
 			"irq-gpio", 0, &pdata->irq_flags);
-	pr_info("%s,pdata->irq_gpio = %d\n", __func__, pdata->irq_gpio);
 
 	pdata->i2c_pull_up = of_property_read_bool(np,
 			"tfa9890,i2c-pull-up");
 	pr_info("%s,pdata->i2c_pull_up = %d\n", __func__, pdata->i2c_pull_up);
 	return ret;
+}
+
+static int tfa9890_power_on(struct tfa9890_dev *tfa9890_dev,
+					bool on) {
+	int retval;
+	return 0;
+	if (on == false)
+		goto power_off;
+
+	pr_info("[%s][%d]\n", __func__, __LINE__);
+
+	retval = reg_set_optimum_mode_check(tfa9890_dev->vdd,
+		TFA9890_ACTIVE_LOAD_UA);
+	if (retval < 0) {
+		dev_err(&tfa9890_dev->i2c_client->dev,
+			"Regulator vdd set_opt failed rc=%d\n",
+			retval);
+		return retval;
+	}
+
+	retval = regulator_enable(tfa9890_dev->vdd);
+	if (retval) {
+		dev_err(&tfa9890_dev->i2c_client->dev,
+			"Regulator vdd enable failed rc=%d\n",
+			retval);
+		goto error_reg_en_vdd;
+	}
+
+	if (tfa9890_dev->i2c_pull_up) {
+		pr_info("[%s][%d]\n", __func__, __LINE__);
+		retval = reg_set_optimum_mode_check(tfa9890_dev->vcc_i2c,
+			TFA9890_I2C_LOAD_UA);
+		if (retval < 0) {
+			dev_err(&tfa9890_dev->i2c_client->dev,
+				"Regulator vcc_i2c set_opt failed rc=%d\n",
+				retval);
+			goto error_reg_opt_i2c;
+		}
+
+		retval = regulator_enable(tfa9890_dev->vcc_i2c);
+		if (retval) {
+			dev_err(&tfa9890_dev->i2c_client->dev,
+				"Regulator vcc_i2c enable failed rc=%d\n",
+				retval);
+			goto error_reg_en_vcc_i2c;
+		}
+	}
+	return 0;
+
+error_reg_en_vcc_i2c:
+	if (tfa9890_dev->i2c_pull_up)
+		reg_set_optimum_mode_check(tfa9890_dev->vdd, 0);
+error_reg_opt_i2c:
+	regulator_disable(tfa9890_dev->vdd);
+error_reg_en_vdd:
+	reg_set_optimum_mode_check(tfa9890_dev->vdd, 0);
+	return retval;
+
+power_off:
+	reg_set_optimum_mode_check(tfa9890_dev->vdd, 0);
+	regulator_disable(tfa9890_dev->vdd);
+	if (tfa9890_dev->i2c_pull_up) {
+		reg_set_optimum_mode_check(tfa9890_dev->vcc_i2c, 0);
+		regulator_disable(tfa9890_dev->vcc_i2c);
+	}
+	return 0;
+}
+static int tfa9890_regulator_configure(struct tfa9890_dev *tfa9890_dev, bool on)
+{
+	int retval;
+	return 0;
+	if (on == false)
+		goto hw_shutdown;
+
+	tfa9890_dev->vdd = regulator_get(&tfa9890_dev->i2c_client->dev,
+					"vdd");
+	if (IS_ERR(tfa9890_dev->vdd)) {
+		dev_err(&tfa9890_dev->i2c_client->dev,
+				"%s: Failed to get vdd regulator\n",
+				__func__);
+		return PTR_ERR(tfa9890_dev->vdd);
+	}
+
+	if (regulator_count_voltages(tfa9890_dev->vdd) > 0) {
+		retval = regulator_set_voltage(tfa9890_dev->vdd,
+			TFA9890_VTG_MIN_UV, TFA9890_VTG_MAX_UV);
+		if (retval) {
+			dev_err(&tfa9890_dev->i2c_client->dev,
+				"regulator set_vtg failed retval =%d\n",
+				retval);
+			goto err_set_vtg_vdd;
+		}
+	}
+
+	if (tfa9890_dev->i2c_pull_up) {
+		pr_info("[%s][%d]\n", __func__, __LINE__);
+		tfa9890_dev->vcc_i2c = regulator_get(&tfa9890_dev->i2c_client->dev,
+						"vcc_i2c");
+		if (IS_ERR(tfa9890_dev->vcc_i2c)) {
+			dev_err(&tfa9890_dev->i2c_client->dev,
+					"%s: Failed to get i2c regulator\n",
+					__func__);
+			retval = PTR_ERR(tfa9890_dev->vcc_i2c);
+			goto err_get_vtg_i2c;
+		}
+
+		if (regulator_count_voltages(tfa9890_dev->vcc_i2c) > 0) {
+			retval = regulator_set_voltage(tfa9890_dev->vcc_i2c,
+				TFA9890_I2C_VTG_MIN_UV, TFA9890_I2C_VTG_MAX_UV);
+			if (retval) {
+				dev_err(&tfa9890_dev->i2c_client->dev,
+					"reg set i2c vtg failed retval =%d\n",
+					retval);
+			goto err_set_vtg_i2c;
+			}
+		}
+	}
+	return 0;
+
+err_set_vtg_i2c:
+	if (tfa9890_dev->i2c_pull_up)
+		regulator_put(tfa9890_dev->vcc_i2c);
+err_get_vtg_i2c:
+	if (regulator_count_voltages(tfa9890_dev->vdd) > 0)
+		regulator_set_voltage(tfa9890_dev->vdd, 0,
+			TFA9890_VTG_MAX_UV);
+err_set_vtg_vdd:
+	regulator_put(tfa9890_dev->vdd);
+	return retval;
+
+hw_shutdown:
+	if (regulator_count_voltages(tfa9890_dev->vdd) > 0)
+		regulator_set_voltage(tfa9890_dev->vdd, 0,
+			TFA9890_VTG_MAX_UV);
+	regulator_put(tfa9890_dev->vdd);
+	if (tfa9890_dev->i2c_pull_up) {
+		if (regulator_count_voltages(tfa9890_dev->vcc_i2c) > 0)
+			regulator_set_voltage(tfa9890_dev->vcc_i2c, 0,
+					TFA9890_I2C_VTG_MAX_UV);
+		regulator_put(tfa9890_dev->vcc_i2c);
+	}
+	return 0;
+};
+
+static int tfa9890_irq_enable(struct tfa9890_dev *tfa9890_dev_data,
+		bool enable)
+{
+	int retval = 0;
+	if (enable) {
+		if (tfa9890_dev_data->irq_enabled)
+			return retval;
+
+	    enable_irq(tfa9890_dev_data->irq);
+		tfa9890_dev_data->irq_enabled = true;
+	} else {
+		if (tfa9890_dev_data->irq_enabled) {
+			disable_irq(tfa9890_dev_data->irq);
+			tfa9890_dev_data->irq_enabled = false;
+		}
+	}
+
+	return retval;
+}
+
+static irqreturn_t tfa9890_irq(int irq, void *data)
+{
+	pr_info("[%s][%d]\n",__func__, __LINE__);
+
+	return IRQ_HANDLED;
 }
 
  /**
@@ -242,14 +413,14 @@ static int tfa9890_parse_dt(struct device *dev,
  * and creates a work queue for detection of other expansion Function
  * modules.
  */
-static int nxp_tfa9890_probe(struct i2c_client *client,
+static int __devinit nxp_tfa9890_probe(struct i2c_client *client,
 		const struct i2c_device_id *dev_id)
 {
 	int ret = 0;
 	struct tfa9890_i2c_platform_data *platform_data;
 	struct tfa9890_dev *tfa9890_dev;
 
-	printk("%s\n", __func__);
+	pr_info("%s\n", __func__);
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		pr_err("%s: i2c check failed\n", __func__);
@@ -294,6 +465,47 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 	tfa9890_dev->tfa9890_device.name = "tfa9890";
 	tfa9890_dev->tfa9890_device.fops = &tfa9890_dev_fops;
 
+	tfa9890_dev->i2c_pull_up = platform_data->i2c_pull_up;
+	ret = tfa9890_regulator_configure(tfa9890_dev, true);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to configure regulators\n");
+		goto err_exit;
+	}
+
+	ret = tfa9890_power_on(tfa9890_dev, true);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to power on\n");
+		goto err_misc_register;
+	}
+
+#if 0 //for test gpio
+	if (gpio_is_valid(platform_data->reset_gpio_test)) {
+		/* configure tfa9890 reset out gpio */
+		printk("configure tfa9890 reset out gpio for test");
+		ret = gpio_request(platform_data->reset_gpio_test,
+				"tfa9890_reset_gpio_test");
+		if (ret) {
+			dev_err(&client->dev, "unable to request gpio [%d]\n",
+						platform_data->reset_gpio_test);
+			goto err_irq_gpio_dir;
+		}
+
+		ret = gpio_direction_output(platform_data->reset_gpio_test, 1);
+		if (ret) {
+			dev_err(&client->dev,
+				"unable to set direction for gpio [%d]\n",
+				platform_data->reset_gpio_test);
+			goto err_reset_gpio_dir;
+		}
+
+		gpio_set_value(platform_data->reset_gpio_test, 1);
+		usleep(GPIO_SLEEP_LOW_US);
+		gpio_set_value(platform_data->reset_gpio_test, 1);
+		msleep(RESET_DELAY);
+	}
+#endif
+
+#if 1
 	if (gpio_is_valid(platform_data->reset_gpio)) {
 		/* configure tfa9890s reset out gpio */
 		ret = gpio_request(platform_data->reset_gpio,
@@ -313,9 +525,46 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 		}
 
 		gpio_set_value(platform_data->reset_gpio, 1);
-		mdelay(GPIO_SLEEP_LOW_US);
+		usleep(GPIO_SLEEP_LOW_US);
 		gpio_set_value(platform_data->reset_gpio, 0);
-		mdelay(RESET_DELAY);
+		usleep(RESET_DELAY);
+	}
+#else
+    tfa9890_dev->first_open = true;
+    tfa9890_dev->reset_gpio = platform_data->reset_gpio;
+#endif
+
+	if (gpio_is_valid(platform_data->irq_gpio)) {
+		/* configure tfa9890 irq gpio */
+		ret = gpio_request(platform_data->irq_gpio, "tfa9890_irq_gpio");
+		if (ret) {
+			dev_err(&client->dev, "unable to request gpio [%d]\n",
+						platform_data->irq_gpio);
+			goto err_irq_gpio_req;
+		}
+		ret = gpio_direction_input(platform_data->irq_gpio);
+		if (ret) {
+			dev_err(&client->dev,
+				"unable to set direction for gpio [%d]\n",
+				platform_data->irq_gpio);
+			goto err_irq_gpio_dir;
+		}
+	} else {
+		dev_err(&client->dev, "irq gpio not provided\n");
+		goto err_irq_gpio_req;
+	}
+	tfa9890_dev->irq = gpio_to_irq(platform_data->irq_gpio);
+
+	ret = request_threaded_irq(tfa9890_dev->irq, NULL,
+		tfa9890_irq, tfa9890_dev->irq_flags,
+		DRIVER_NAME, tfa9890_dev);
+	tfa9890_dev->irq_enabled = true;
+
+	if (ret < 0) {
+		dev_err(&client->dev,
+				"%s: Failed to create irq thread\n",
+				__func__);
+		goto err_enable_irq;
 	}
 
 	ret = misc_register(&tfa9890_dev->tfa9890_device);
@@ -324,7 +573,7 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 		goto err_misc_register;
 	}
 
-	printk("%s Done\n", __func__);
+	pr_info("%s Done\n", __func__);
 	
 	return 0;
 
@@ -333,11 +582,19 @@ err_misc_register:
 	mutex_destroy(&tfa9890_dev->read_mutex);
 	kfree(tfa9890_dev);
 
+err_irq_gpio_req:
+err_enable_irq:
+	tfa9890_irq_enable(tfa9890_dev, false);
+
 #if 1
 err_reset_gpio_dir:
 	if (gpio_is_valid(platform_data->reset_gpio))
 		gpio_free(platform_data->reset_gpio);
 #endif
+
+err_irq_gpio_dir:
+	if (gpio_is_valid(platform_data->irq_gpio))
+		gpio_free(platform_data->irq_gpio);
 
 err_exit:
 err_i2c:
@@ -356,7 +613,7 @@ err_i2c:
  * frees the interrupt, unregisters the driver from the input subsystem,
  * turns off the power to the sensor, and frees other allocated resources.
  */
-static int nxp_tfa9890_remove(struct i2c_client *client)
+static int __devexit nxp_tfa9890_remove(struct i2c_client *client)
 {
 	struct tfa9890_dev *tfa9890_dev;
 
@@ -434,7 +691,7 @@ static struct i2c_driver nxp_tfa9890_driver = {
 #endif
 	},
 	.probe = nxp_tfa9890_probe,
-	.remove =nxp_tfa9890_remove,
+	.remove = __devexit_p(nxp_tfa9890_remove),
 	.id_table = nxp_tfa9890_id_table,
 };
 
@@ -449,7 +706,7 @@ static struct i2c_driver nxp_tfa9890_driver = {
  */
 static int __init nxp_tfa9890_init(void)
 {
-	printk("%s\n",__func__);
+	pr_info("%s\n",__func__);
 	return i2c_add_driver(&nxp_tfa9890_driver);
 }
 
