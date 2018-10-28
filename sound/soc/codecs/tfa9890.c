@@ -541,7 +541,7 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 		if (ret) {
 			dev_err(&client->dev, "unable to request gpio [%d]\n",
 						platform_data->irq_gpio);
-			goto err_irq_gpio_req;
+			goto err_enable_irq;
 		}
 		ret = gpio_direction_input(platform_data->irq_gpio);
 		if (ret) {
@@ -552,7 +552,7 @@ static int nxp_tfa9890_probe(struct i2c_client *client,
 		}
 	} else {
 		dev_err(&client->dev, "irq gpio not provided\n");
-		goto err_irq_gpio_req;
+		goto err_enable_irq;
 	}
 	tfa9890_dev->irq = gpio_to_irq(platform_data->irq_gpio);
 
@@ -583,7 +583,6 @@ err_misc_register:
 	mutex_destroy(&tfa9890_dev->read_mutex);
 	kfree(tfa9890_dev);
 
-err_irq_gpio_req:
 err_enable_irq:
 	tfa9890_irq_enable(tfa9890_dev, false);
 
